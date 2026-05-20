@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Camera,
   CheckCircle2,
+  CircleX,
   Image as ImageIcon,
   Languages,
   LoaderCircle,
@@ -12,7 +13,6 @@ import {
 } from 'lucide-react'
 import './App.css'
 import { SAMPLE_IMAGE_SIZE, sampleImageUrl, sampleRegions } from './sampleData'
-import { recognizeImage } from './services/ocr'
 import { translateBatch } from './services/translate'
 import {
   languageOptions,
@@ -46,6 +46,8 @@ type LayoutRect = {
   height: number
 }
 
+type OcrModule = typeof import('./services/ocr')
+
 function App() {
   const [sourceLang, setSourceLang] = useState(languageOptions[0].code)
   const [targetLang, setTargetLang] = useState(targetLanguageOptions[0].code)
@@ -65,6 +67,9 @@ function App() {
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
   const objectUrlRef = useRef<string | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const ocrModulePromiseRef = useRef<Promise<OcrModule> | null>(null)
+  const runIdRef = useRef(0)
 
   const selectedSource = useMemo(
     () => languageOptions.find((item) => item.code === sourceLang) ?? languageOptions[0],
@@ -95,6 +100,9 @@ function App() {
 
   useEffect(() => {
     return () => {
+      abortControllerRef.current?.abort()
+      void ocrModulePromiseRef.current?.then((ocrModule) => ocrModule.terminateOcrWorker())
+
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current)
       }
@@ -126,6 +134,12 @@ function App() {
     }
   }, [imageSrc])
 
+  useEffect(() => {
+    if (ocrModulePromiseRef.current) {
+      void ocrModulePromiseRef.current.then((ocrModule) => ocrModule.terminateOcrWorker())
+    }
+  }, [sourceLang])
+
   const resetResult = () => {
     setRegions([])
     setProgress(0)
@@ -133,7 +147,29 @@ function App() {
     setErrorMessage('')
   }
 
+  const loadOcrModule = () => {
+    ocrModulePromiseRef.current ??= import('./services/ocr')
+    return ocrModulePromiseRef.current
+  }
+
+  const cancelActiveProcessing = () => {
+    if (!isBusy) {
+      return
+    }
+
+    runIdRef.current += 1
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
+    setPhase(imageSrc ? 'ready' : 'empty')
+    setStatusLine('已取消识别')
+    setProgress(0)
+    setErrorMessage('')
+    void ocrModulePromiseRef.current?.then((ocrModule) => ocrModule.terminateOcrWorker())
+  }
+
   const loadFile = (file: File) => {
+    cancelActiveProcessing()
+
     if (!file.type.startsWith('image/')) {
       setErrorMessage('请选择图片文件。')
       setPhase('error')
@@ -164,6 +200,8 @@ function App() {
   }
 
   const loadSample = () => {
+    cancelActiveProcessing()
+
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
       objectUrlRef.current = null
@@ -196,7 +234,8 @@ function App() {
   }
 
   const startTranslate = async () => {
-    if (!imageRef.current || !imageSrc) {
+    const imageElement = imageRef.current
+    if (!imageElement || !imageSrc) {
       setErrorMessage('请先拍照或选择一张图片。')
       setPhase('error')
       return
@@ -208,20 +247,39 @@ function App() {
       return
     }
 
+    const runId = runIdRef.current + 1
+    runIdRef.current = runId
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+    const isCurrentRun = () => runIdRef.current === runId && !abortController.signal.aborted
+
     try {
       resetResult()
       setPhase('ocr')
-      setStatusLine('OCR（图片文字识别）启动中')
+      setProgress(2)
+      setStatusLine('正在加载 OCR（图片文字识别）代码')
 
-      const detected = await recognizeImage({
-        image: imageRef.current,
+      const ocrModule = await loadOcrModule()
+      if (!isCurrentRun()) {
+        return
+      }
+
+      const detected = await ocrModule.recognizeImage({
+        image: imageElement,
         imageSize,
         lang: selectedSource.ocrCode,
         onProgress: (next) => {
-          setProgress(next.progress)
-          setStatusLine(next.label)
+          if (isCurrentRun()) {
+            setProgress(next.progress)
+            setStatusLine(next.label)
+          }
         },
+        signal: abortController.signal,
       })
+
+      if (!isCurrentRun()) {
+        return
+      }
 
       if (detected.length === 0) {
         setPhase('error')
@@ -239,7 +297,12 @@ function App() {
         texts: detected.map((item) => item.originalText),
         source: selectedSource.translateCode,
         target: selectedTarget.translateCode,
+        signal: abortController.signal,
       })
+
+      if (!isCurrentRun()) {
+        return
+      }
 
       setRegions(
         detected.map((item, index) => ({
@@ -253,10 +316,31 @@ function App() {
       setStatusLine(`识别 ${detected.length} 处文字`)
       setOverlayMode('translated')
     } catch (error) {
+      if (
+        runIdRef.current === runId &&
+        (abortController.signal.aborted ||
+          (error instanceof Error &&
+            (error.name === 'OcrCancelledError' || error.name === 'AbortError')))
+      ) {
+        setPhase(imageSrc ? 'ready' : 'empty')
+        setProgress(0)
+        setStatusLine('已取消识别')
+        setErrorMessage('')
+        return
+      }
+
+      if (runIdRef.current !== runId) {
+        return
+      }
+
       const message = error instanceof Error ? error.message : '处理失败，请稍后再试。'
       setPhase('error')
       setStatusLine('处理失败')
       setErrorMessage(message)
+    } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null
+      }
     }
   }
 
@@ -393,6 +477,12 @@ function App() {
               {isBusy ? <LoaderCircle className="spin" size={18} /> : <Wand2 size={18} />}
               开始翻译
             </button>
+            {isBusy && (
+              <button type="button" className="danger" onClick={cancelActiveProcessing}>
+                <CircleX size={18} />
+                取消
+              </button>
+            )}
             <button type="button" className="ghost" onClick={loadSample} disabled={isBusy}>
               <ImageIcon size={18} />
               试用示例

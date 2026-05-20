@@ -380,6 +380,12 @@ select:disabled {
   background: var(--accent-strong);
 }
 
+.action-strip .danger {
+  border-color: #fecaca;
+  color: #991b1b;
+  background: #fff1f2;
+}
+
 .action-strip .ghost {
   color: var(--accent-strong);
   background: var(--accent-soft);

@@ -1,5 +1,5 @@
 [build]
-  command = "npm run build"
+  command = "npm run download:ocr-langs && npm run build"
   publish = "dist"
 
 [build.environment]
@@ -8,6 +8,16 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+
+[[headers]]
+  for = "/ocr/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
 
 [[redirects]]
   from = "/*"

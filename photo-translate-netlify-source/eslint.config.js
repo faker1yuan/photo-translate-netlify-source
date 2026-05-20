@@ -5,8 +5,10 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
+const tsconfigRootDir = new URL('.', import.meta.url).pathname
+
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'photo-translate-netlify-source', 'public/ocr']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -16,7 +18,13 @@ export default defineConfig([
       reactRefresh.configs.vite,
     ],
     languageOptions: {
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+      parserOptions: {
+        tsconfigRootDir,
+      },
     },
   },
 ])

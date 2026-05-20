@@ -15,6 +15,27 @@ npm run dev
 
 OCR 在浏览器里用 `tesseract.js` 完成。真实翻译通过本机后端 `/api/translate` 调用 DeepSeek，API Key（接口密钥）不会打包进浏览器前端。
 
+OCR 的 worker（后台识别脚本）和 WASM（浏览器可运行的高性能识别核心）会在构建时复制到 `public/ocr/`，这样部署后不再依赖外部 CDN（内容分发网络）。语言包需要放在：
+
+```bash
+public/ocr/lang/eng.traineddata.gz
+public/ocr/lang/chi_sim.traineddata.gz
+public/ocr/lang/jpn.traineddata.gz
+public/ocr/lang/kor.traineddata.gz
+public/ocr/lang/fra.traineddata.gz
+public/ocr/lang/spa.traineddata.gz
+public/ocr/lang/deu.traineddata.gz
+```
+
+如果缺少对应语言包，页面会用中文提示缺少哪个文件，不会显示难懂的底层错误。
+
+有网络权限时，可以运行下面的命令自动下载这些语言包：
+
+```bash
+npm run prepare:ocr-assets
+npm run download:ocr-langs
+```
+
 把你的 DeepSeek API Key 填到 `.env`：
 
 ```bash

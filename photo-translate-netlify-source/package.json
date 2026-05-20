@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run prepare:ocr-assets && tsc -b && vite build",
     "lint": "eslint .",
+    "prepare:ocr-assets": "node scripts/prepare-ocr-assets.mjs",
+    "download:ocr-langs": "node scripts/download-ocr-langs.mjs",
     "test:e2e": "playwright test",
     "preview": "node server.mjs",
     "serve": "node server.mjs",

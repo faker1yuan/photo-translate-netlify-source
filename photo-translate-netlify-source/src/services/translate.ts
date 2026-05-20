@@ -4,6 +4,7 @@ type TranslateBatchParams = {
   texts: string[]
   source: string
   target: string
+  signal?: AbortSignal
 }
 
 type TranslateBatchResult = {
@@ -15,6 +16,7 @@ export const translateBatch = async ({
   texts,
   source,
   target,
+  signal,
 }: TranslateBatchParams): Promise<TranslateBatchResult> => {
   if (texts.length === 0) {
     return { texts: [], provider: 'none' }
@@ -35,6 +37,7 @@ export const translateBatch = async ({
         source,
         target,
       }),
+      signal,
     })
 
     const data = (await response.json().catch(() => null)) as {
